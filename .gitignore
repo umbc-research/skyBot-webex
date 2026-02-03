@@ -1,0 +1,17 @@
+# Environment
+.env
+venv/
+__pycache__/
+*.pyc
+
+# IDE
+.vscode/
+.idea/
+
+# Data (keep structure but not contents)
+data/sessions.csv
+data/operators.csv
+data/schedule.csv
+
+# Logs
+*.log
