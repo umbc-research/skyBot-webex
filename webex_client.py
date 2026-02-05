@@ -40,7 +40,8 @@ class WebExClient:
         room_id: str,
         text: str,
         markdown: str = None,
-        parent_id: str = None
+        parent_id: str = None,
+        files: list = None
     ) -> str:
         """
         Send a message to a space.
@@ -50,6 +51,7 @@ class WebExClient:
             text: Plain text message
             markdown: Optional markdown-formatted message
             parent_id: Optional parent message ID (for threading)
+            files: Optional list of file URLs to attach (images, etc.)
 
         Returns:
             The message ID of the sent message
@@ -59,6 +61,8 @@ class WebExClient:
             kwargs["markdown"] = markdown
         if parent_id:
             kwargs["parentId"] = parent_id
+        if files:
+            kwargs["files"] = files
 
         message = self.api.messages.create(**kwargs)
         return message.id

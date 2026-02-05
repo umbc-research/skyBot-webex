@@ -18,13 +18,17 @@ from webex_client import WebExClient
 from session_manager import SessionManager, SessionStateManager
 from webhook_server import app, set_bot
 
+# Store directories
+WEBEX_DIR = os.path.dirname(os.path.abspath(__file__))
+PARENT_DIR = os.path.join(WEBEX_DIR, '..')
+
 # Add parent directory to path for importing shared modules
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, PARENT_DIR)
 from WeatherCompiler import WeatherCompiler
 from ScheduleReader import ScheduleReader
 
 # Load environment variables
-dotenv.load_dotenv()
+dotenv.load_dotenv(os.path.join(WEBEX_DIR, '.env'))
 
 
 class SkyBotWebEx:
@@ -42,12 +46,18 @@ class SkyBotWebEx:
         )
 
         # Session state (tracks parent IDs for each day)
-        self.state = SessionStateManager()
+        self.state = SessionStateManager(
+            filepath=os.path.join(WEBEX_DIR, "data/sessions.csv")
+        )
         self.state.read_sessions()
 
         # Schedule reader (shared with Discord version)
+        # ScheduleReader uses relative paths, so temporarily change to parent dir
+        original_dir = os.getcwd()
+        os.chdir(PARENT_DIR)
         self.sr = ScheduleReader()
         self.sr.readScheduleFile()
+        os.chdir(original_dir)
 
         # Configuration
         self.include_midnight_shifts = False
@@ -71,7 +81,7 @@ class SkyBotWebEx:
     def _read_config(self):
         """Read configuration from config.csv"""
         try:
-            with open("data/config.csv", "r") as f:
+            with open(os.path.join(WEBEX_DIR, "data/config.csv"), "r") as f:
                 for line in f.read().splitlines():
                     parts = line.split(',')
                     if parts[0] == "midnight_shifts_enabled":
@@ -81,7 +91,7 @@ class SkyBotWebEx:
 
     def _write_config(self):
         """Write configuration to config.csv"""
-        with open("data/config.csv", "w") as f:
+        with open(os.path.join(WEBEX_DIR, "data/config.csv"), "w") as f:
             ms_enabled = '1' if self.include_midnight_shifts else '0'
             f.write(f"midnight_shifts_enabled,{ms_enabled}\n")
 
@@ -105,40 +115,46 @@ class SkyBotWebEx:
             message_id: ID of the message
             parent_id: Parent message ID if this is a reply
         """
+        # WebEx strips the @mention in group spaces, so the bot may receive
+        # "ping" instead of "skybot ping". Strip the "skybot" prefix if present.
         cmd = message_text.lower().strip()
+        if cmd.startswith('skybot '):
+            cmd = cmd[7:]  # Remove "skybot " prefix
+        elif cmd == 'skybot':
+            cmd = 'help'
 
         # Basic commands (anyone can use)
-        if cmd == 'skybot ping':
+        if cmd == 'ping':
             self._cmd_ping(room_id)
-        elif cmd == 'skybot help' or cmd == 'skybot':
+        elif cmd == 'help':
             self._cmd_help(room_id)
-        elif cmd == 'skybot graph':
+        elif cmd == 'graph':
             self._cmd_graph(room_id)
-        elif cmd == 'skybot details':
+        elif cmd == 'details':
             self._cmd_details(room_id, extended=False)
-        elif cmd == 'skybot details extended':
+        elif cmd == 'details extended':
             self._cmd_details(room_id, extended=True)
-        elif cmd == 'skybot details today':
+        elif cmd == 'details today':
             self._cmd_details_today(room_id)
-        elif cmd == 'skybot popscope':
+        elif cmd == 'popscope':
             self._cmd_popscope(room_id)
-        elif cmd == 'skybot sessions':
+        elif cmd == 'sessions':
             self._cmd_sessions(room_id)
 
         # Shifter-only commands
-        elif cmd == 'skybot cancel':
+        elif cmd == 'cancel':
             if self._check_shifter(person_email, room_id):
                 self._cmd_cancel(room_id, parent_id)
-        elif cmd == 'skybot uncancel':
+        elif cmd == 'uncancel':
             if self._check_shifter(person_email, room_id):
                 self._cmd_uncancel(room_id, parent_id)
-        elif cmd == 'skybot enable ms':
+        elif cmd == 'enable ms':
             if self._check_shifter(person_email, room_id):
                 self._cmd_enable_ms(room_id)
-        elif cmd == 'skybot disable ms':
+        elif cmd == 'disable ms':
             if self._check_shifter(person_email, room_id):
                 self._cmd_disable_ms(room_id)
-        elif cmd.startswith('skybot schedule'):
+        elif cmd.startswith('schedule'):
             if self._check_shifter(person_email, room_id):
                 self._cmd_schedule(room_id, cmd)
 
@@ -157,19 +173,44 @@ class SkyBotWebEx:
         self.client.send_message(room_id, f"O lord, he runnin on {hostname}")
 
     def _cmd_help(self, room_id: str):
-        """Handle help command."""
-        wc = WeatherCompiler()
-        # Use the existing help text but could be customized for WebEx
-        help_text = wc.getHelp()
-        # Replace Discord-specific mentions if any
-        help_text = help_text.replace("<@&", "@")
-        self.client.send_message(room_id, help_text)
+        """Handle help command with WebEx-formatted markdown."""
+        help_md = (
+            "**skyBot** - UMBC Observatory Bot\n"
+            "git: https://github.com/outyprouty/skyBot\n\n"
+            "skyBot uses NOAA to gather sky data and organize it for easy viewing.\n\n"
+            "---\n"
+            "**Automatic Actions**\n\n"
+            "- **Daily Checks**: Every day at 12:05, skyBot checks the average cloud cover for the next three nights. "
+            "It sends a summary and creates observing session threads if the night is clear.\n"
+            "- **Obs Session Check**: Every day at 15:05, if an obs session is scheduled, skyBot rechecks cloud cover "
+            "and reports if it's still clear.\n"
+            "- **Popscope Check**: Every day at 12:04, sends summary of whether the next three days are good for a Popscope event.\n\n"
+            "A clear night = NOAA says a 4-hour rolling average of cloud cover (sunset to sunrise) is 30% or less.\n\n"
+            "---\n"
+            "**General Commands** (anyone)\n\n"
+            "- **graph** - Weather graph for the next 48 hours\n"
+            "- **details** - Cloud cover for dark hours, next 3 days\n"
+            "- **details today** - Cloud cover for dark hours, today only\n"
+            "- **details extended** - Cloud cover 18:00-05:00, then 05:00-10:00\n"
+            "- **popscope** - Cloud cover sunset to 21:00, next 3 days\n"
+            "- **ping** - Show host running skyBot\n"
+            "- **help** - This message\n"
+            "- **sessions** - Show recent session status\n\n"
+            "---\n"
+            "**Shifter Commands** (authorized only)\n\n"
+            "- **cancel** - Cancel an observing session (reply to session thread)\n"
+            "- **uncancel** - Uncancel a previously cancelled session\n"
+            "- **enable ms** - Enable midnight shift pinging (winter months)\n"
+            "- **disable ms** - Disable midnight shift pinging (summer months)\n"
+            "- **schedule [day] [shift] [operator]** - Update the schedule\n"
+        )
+        self.client.send_message(room_id, help_md, markdown=help_md)
 
     def _cmd_graph(self, room_id: str):
-        """Handle graph command - send weather graph URL."""
+        """Handle graph command - send weather graph as an embedded image."""
         from time import time
         url = f"https://forecast.weather.gov/meteograms/Plotter.php?lat=39.2906&lon=-76.6093&wfo=LWX&zcode=MDZ011&gset=18&gdiff=3&unit=0&tinfo=EY5&ahour=0&pcmd=00000100100000000000000000000000000000000000000000000000000&lg=en&indu=1!1!1!&dd=&bw=&hrspan=48&pqpfhr=6&psnwhr=6={int(time())}"
-        self.client.send_message(room_id, url)
+        self.client.send_message(room_id, "48-Hour Weather Forecast", files=[url])
 
     def _cmd_details(self, room_id: str, extended: bool = False):
         """Handle details command."""
@@ -287,7 +328,8 @@ class SkyBotWebEx:
 
     def _cmd_schedule(self, room_id: str, cmd: str):
         """Handle schedule command."""
-        result = self.sr.changeSchedule(cmd)
+        # changeSchedule expects "skybot schedule ..." format
+        result = self.sr.changeSchedule("skybot " + cmd)
         self.client.send_message(room_id, result)
 
     # === Scheduled Tasks ===
@@ -471,6 +513,21 @@ def main():
 
     # Register bot with webhook server
     set_bot(bot)
+
+    # Register webhook with WebEx
+    webhook_url = os.getenv('WEBHOOK_URL')
+    if webhook_url:
+        print("Registering webhook with WebEx...")
+        bot.client.delete_all_webhooks()
+        webhook_id = bot.client.create_webhook(
+            name='SkyBot Message Handler',
+            target_url=webhook_url,
+            resource='messages',
+            event='created'
+        )
+        print(f"Webhook registered: {webhook_url} (ID: {webhook_id})")
+    else:
+        print("WARNING: WEBHOOK_URL not set - bot won't receive messages!")
 
     # Set up scheduler
     scheduler = setup_scheduler(bot)
