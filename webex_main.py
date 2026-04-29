@@ -51,10 +51,9 @@ class SkyBotWebEx:
         )
         self.state.read_sessions()
 
-        # Schedule reader (shared with Discord version)
-        # ScheduleReader uses relative paths, so temporarily change to parent dir
+        # Schedule reader - use WebEx-specific schedule.csv in data/
         original_dir = os.getcwd()
-        os.chdir(PARENT_DIR)
+        os.chdir(os.path.join(WEBEX_DIR, 'data'))
         self.sr = ScheduleReader()
         self.sr.readScheduleFile()
         os.chdir(original_dir)
@@ -63,6 +62,11 @@ class SkyBotWebEx:
         self.include_midnight_shifts = False
         self.authorized_shifters = self._load_authorized_shifters()
         self.observing_space_id = os.getenv("WEBEX_OBSERVING_SPACE_ID")
+        self.team_id = self.client.get_team_id_by_name("UMBC Observatory")
+        if self.team_id:
+            print(f"Found team: UMBC Observatory (ID: {self.team_id})")
+        else:
+            print("WARNING: Could not find team 'UMBC Observatory' - sessions will not be added to the team")
 
         # Schedule coordinator email (for uncancel notifications)
         self.schedule_coordinator_email = os.getenv(
@@ -125,54 +129,60 @@ class SkyBotWebEx:
 
         # Basic commands (anyone can use)
         if cmd == 'ping':
-            self._cmd_ping(room_id)
+            self._cmd_ping(room_id, parent_id)
         elif cmd == 'help':
-            self._cmd_help(room_id)
+            self._cmd_help(room_id, parent_id)
         elif cmd == 'graph':
-            self._cmd_graph(room_id)
+            self._cmd_graph(room_id, parent_id)
         elif cmd == 'details':
-            self._cmd_details(room_id, extended=False)
+            self._cmd_details(room_id, extended=False, parent_id=parent_id)
         elif cmd == 'details extended':
-            self._cmd_details(room_id, extended=True)
+            self._cmd_details(room_id, extended=True, parent_id=parent_id)
         elif cmd == 'details today':
-            self._cmd_details_today(room_id)
+            self._cmd_details_today(room_id, parent_id)
         elif cmd == 'popscope':
-            self._cmd_popscope(room_id)
+            self._cmd_popscope(room_id, parent_id)
         elif cmd == 'sessions':
-            self._cmd_sessions(room_id)
+            self._cmd_sessions(room_id, parent_id)
+        elif cmd == 'testcheck':
+            if self._check_shifter(person_email, room_id, parent_id):
+                self.daily_check()
 
         # Shifter-only commands
+        elif cmd.startswith('create session'):
+            if self._check_shifter(person_email, room_id, parent_id):
+                self._cmd_create_session(room_id, cmd, parent_id)
         elif cmd == 'cancel':
-            if self._check_shifter(person_email, room_id):
+            if self._check_shifter(person_email, room_id, parent_id):
                 self._cmd_cancel(room_id, parent_id)
         elif cmd == 'uncancel':
-            if self._check_shifter(person_email, room_id):
+            if self._check_shifter(person_email, room_id, parent_id):
                 self._cmd_uncancel(room_id, parent_id)
         elif cmd == 'enable ms':
-            if self._check_shifter(person_email, room_id):
-                self._cmd_enable_ms(room_id)
+            if self._check_shifter(person_email, room_id, parent_id):
+                self._cmd_enable_ms(room_id, parent_id)
         elif cmd == 'disable ms':
-            if self._check_shifter(person_email, room_id):
-                self._cmd_disable_ms(room_id)
+            if self._check_shifter(person_email, room_id, parent_id):
+                self._cmd_disable_ms(room_id, parent_id)
         elif cmd.startswith('schedule'):
-            if self._check_shifter(person_email, room_id):
-                self._cmd_schedule(room_id, cmd)
+            if self._check_shifter(person_email, room_id, parent_id):
+                self._cmd_schedule(room_id, cmd, parent_id)
 
-    def _check_shifter(self, email: str, room_id: str) -> bool:
+    def _check_shifter(self, email: str, room_id: str, parent_id: str = None) -> bool:
         """Check if user is authorized and send error if not."""
         if self.client.is_authorized(email, self.authorized_shifters):
             return True
-        self.client.send_message(room_id, "You do not have permission to use this command.")
+        self.client.send_message(room_id, "You do not have permission to use this command.", parent_id=parent_id)
         return False
 
     # === Command Implementations ===
 
-    def _cmd_ping(self, room_id: str):
+    def _cmd_ping(self, room_id: str, parent_id: str = None):
         """Handle ping command."""
         hostname = socket.getfqdn(socket.gethostname())
-        self.client.send_message(room_id, f"O lord, he runnin on {hostname}")
+        self.client.send_message(room_id, f"O lord, he runnin on {hostname}", parent_id=parent_id)
 
-    def _cmd_help(self, room_id: str):
+    def _cmd_help(self, room_id: str, parent_id: str = None):
         """Handle help command with WebEx-formatted markdown."""
         help_md = (
             "**skyBot** - UMBC Observatory Bot\n"
@@ -198,41 +208,42 @@ class SkyBotWebEx:
             "- **sessions** - Show recent session status\n\n"
             "---\n"
             "**Shifter Commands** (authorized only)\n\n"
-            "- **cancel** - Cancel an observing session (reply to session thread)\n"
-            "- **uncancel** - Uncancel a previously cancelled session\n"
+            "- **create session YYYY-MM-DD** - Manually create a session space for a given date (today to day+2)\n"
+            "- **cancel** - Cancel an observing session (use inside session space)\n"
+            "- **uncancel** - Uncancel a previously cancelled session (use inside session space)\n"
             "- **enable ms** - Enable midnight shift pinging (winter months)\n"
             "- **disable ms** - Disable midnight shift pinging (summer months)\n"
             "- **schedule [day] [shift] [operator]** - Update the schedule\n"
         )
-        self.client.send_message(room_id, help_md, markdown=help_md)
+        self.client.send_message(room_id, help_md, markdown=help_md, parent_id=parent_id)
 
-    def _cmd_graph(self, room_id: str):
+    def _cmd_graph(self, room_id: str, parent_id: str = None):
         """Handle graph command - send weather graph as an embedded image."""
         from time import time
         url = f"https://forecast.weather.gov/meteograms/Plotter.php?lat=39.2906&lon=-76.6093&wfo=LWX&zcode=MDZ011&gset=18&gdiff=3&unit=0&tinfo=EY5&ahour=0&pcmd=00000100100000000000000000000000000000000000000000000000000&lg=en&indu=1!1!1!&dd=&bw=&hrspan=48&pqpfhr=6&psnwhr=6={int(time())}"
-        self.client.send_message(room_id, "48-Hour Weather Forecast", files=[url])
+        self.client.send_message(room_id, "48-Hour Weather Forecast", files=[url], parent_id=parent_id)
 
-    def _cmd_details(self, room_id: str, extended: bool = False):
+    def _cmd_details(self, room_id: str, extended: bool = False, parent_id: str = None):
         """Handle details command."""
         wc = WeatherCompiler()
         for day in [1, 2, 3]:
             details = wc.ccForecast(day, extended)
-            self.client.send_message(room_id, details, f"```\n{details}\n```")
+            self.client.send_message(room_id, details, details, parent_id=parent_id)
 
-    def _cmd_details_today(self, room_id: str):
+    def _cmd_details_today(self, room_id: str, parent_id: str = None):
         """Handle details today command."""
         wc = WeatherCompiler()
         details = wc.ccForecast(1, False)
-        self.client.send_message(room_id, details, f"```\n{details}\n```")
+        self.client.send_message(room_id, details, details, parent_id=parent_id)
 
-    def _cmd_popscope(self, room_id: str):
+    def _cmd_popscope(self, room_id: str, parent_id: str = None):
         """Handle popscope command."""
         wc = WeatherCompiler()
         for day in [1, 2, 3]:
             details = wc.popScopeForecast(day)
-            self.client.send_message(room_id, details)
+            self.client.send_message(room_id, details, details, parent_id=parent_id)
 
-    def _cmd_sessions(self, room_id: str):
+    def _cmd_sessions(self, room_id: str, parent_id: str = None):
         """Handle sessions command - list recent sessions."""
         lines = ["**Recent Sessions:**", ""]
         for i in range(4):
@@ -249,20 +260,63 @@ class SkyBotWebEx:
             else:
                 lines.append(f"{date}: No session created")
 
-        self.client.send_message(room_id, "\n".join(lines))
+        self.client.send_message(room_id, "\n".join(lines), parent_id=parent_id)
+
+    def _cmd_create_session(self, room_id: str, cmd: str, parent_id: str = None):
+        """Handle create session YYYY-MM-DD command."""
+        parts = cmd.split()
+        if len(parts) != 3:
+            self.client.send_message(
+                room_id,
+                "Usage: create session YYYY-MM-DD (e.g. create session 2026-04-30)",
+                parent_id=parent_id
+            )
+            return
+
+        try:
+            target_date = datetime.date.fromisoformat(parts[2])
+        except ValueError:
+            self.client.send_message(
+                room_id,
+                "Invalid date format. Use YYYY-MM-DD (e.g. create session 2026-04-30)",
+                parent_id=parent_id
+            )
+            return
+
+        today = datetime.date.today()
+        day = (target_date - today).days + 1
+
+        if day < 1 or day > 3:
+            self.client.send_message(
+                room_id,
+                f"Date must be today, tomorrow, or the day after ({today} to {today + datetime.timedelta(days=2)}).",
+                parent_id=parent_id
+            )
+            return
+
+        session = self.state.get_session_for_day(day)
+        if session['parent_id']:
+            self.client.send_message(
+                room_id,
+                f"A session space already exists for {target_date}.",
+                parent_id=parent_id
+            )
+            return
+
+        wc = WeatherCompiler()
+        space_id = self._create_session_thread(day, wc)
+        self.state.set_session_for_day(day, parent_id=space_id, is_clear=True)
+        self.state.write_sessions()
+        self.client.send_message(room_id, f"Session space created for {target_date}.", parent_id=parent_id)
 
     def _cmd_cancel(self, room_id: str, parent_id: str = None):
         """Handle cancel command."""
-        # Find which day this message belongs to
-        day = None
-        if parent_id:
-            day = self.state.find_day_by_parent_id(parent_id)
+        day = self.state.find_day_by_parent_id(room_id)
 
         if day is None:
-            # Try to find by room context (if in observing space)
             self.client.send_message(
                 room_id,
-                "Please reply to a session thread to cancel it, or use this command in a session thread."
+                "Please use this command inside a session space."
             )
             return
 
@@ -281,14 +335,12 @@ class SkyBotWebEx:
 
     def _cmd_uncancel(self, room_id: str, parent_id: str = None):
         """Handle uncancel command."""
-        day = None
-        if parent_id:
-            day = self.state.find_day_by_parent_id(parent_id)
+        day = self.state.find_day_by_parent_id(room_id)
 
         if day is None:
             self.client.send_message(
                 room_id,
-                "Please reply to a session thread to uncancel it."
+                "Please use this command inside a session space."
             )
             return
 
@@ -302,35 +354,36 @@ class SkyBotWebEx:
         self.state.write_sessions()
 
         # Post to the session thread
-        self.session_manager.post_uncancelled(
-            session['parent_id'],
-            self.schedule_coordinator_email
-        )
+        self.session_manager.post_uncancelled(session['parent_id'])
         self.client.send_message(room_id, "Session has been uncancelled.")
 
-    def _cmd_enable_ms(self, room_id: str):
+    def _cmd_enable_ms(self, room_id: str, parent_id: str = None):
         """Enable midnight shifts."""
         self.include_midnight_shifts = True
         self._write_config()
         self.client.send_message(
             room_id,
-            "Midnight shifts enabled - MS operators will be pinged in new observing session threads"
+            "Midnight shifts enabled - MS operators will be pinged in new observing session threads",
+            parent_id=parent_id
         )
 
-    def _cmd_disable_ms(self, room_id: str):
+    def _cmd_disable_ms(self, room_id: str, parent_id: str = None):
         """Disable midnight shifts."""
         self.include_midnight_shifts = False
         self._write_config()
         self.client.send_message(
             room_id,
-            "Midnight shifts disabled - MS operators will NOT be pinged in new observing session threads"
+            "Midnight shifts disabled - MS operators will NOT be pinged in new observing session threads",
+            parent_id=parent_id
         )
 
-    def _cmd_schedule(self, room_id: str, cmd: str):
+    def _cmd_schedule(self, room_id: str, cmd: str, parent_id: str = None):
         """Handle schedule command."""
-        # changeSchedule expects "skybot schedule ..." format
+        original_dir = os.getcwd()
+        os.chdir(os.path.join(WEBEX_DIR, 'data'))
         result = self.sr.changeSchedule("skybot " + cmd)
-        self.client.send_message(room_id, result)
+        os.chdir(original_dir)
+        self.client.send_message(room_id, result, parent_id=parent_id)
 
     # === Scheduled Tasks ===
 
@@ -417,25 +470,28 @@ class SkyBotWebEx:
                     self.state.set_session_for_day(day, is_clear=False)
 
     def _create_session_thread(self, day: int, wc: WeatherCompiler) -> str:
-        """Create a new session thread for a day."""
+        """Create a new session space for a day."""
         obs_date = datetime.date.today() + datetime.timedelta(days=day - 1)
         schedule = self.sr.getSchedule(obs_date.weekday())
-        operator_message = self._build_operator_message(schedule)
+        operator_message, operator_emails = self._build_operator_message(schedule)
 
-        parent_id = self.session_manager.create_session_thread(
+        space_id = self.session_manager.create_session_space(
             date=obs_date,
-            operator_message=operator_message
+            operator_message=operator_message,
+            operator_emails=operator_emails,
+            team_id=self.team_id
         )
 
         # Post initial weather
         details = wc.ccForecast(day, False)
-        self.session_manager.post_weather_update(parent_id, details)
+        self.session_manager.post_weather_update(space_id, details)
 
-        return parent_id
+        return space_id
 
-    def _build_operator_message(self, schedule) -> str:
-        """Build operator assignment message with mentions."""
+    def _build_operator_message(self, schedule) -> tuple:
+        """Build operator assignment message with mentions. Returns (message, emails)."""
         lines = []
+        emails = []
         shift_names = ['ES1', 'ES2', 'MS1', 'MS2', 'GS1', 'GS2']
 
         for i, shift in enumerate(shift_names):
@@ -449,8 +505,10 @@ class SkyBotWebEx:
             else:
                 mention = self.client.mention_person(email)
                 lines.append(f"{shift}: {mention}")
+                if email not in emails:
+                    emails.append(email)
 
-        return "\n".join(lines)
+        return "\n".join(lines), emails
 
     def _calculate_observing_hours(self, clear_hours, wc, day: int) -> str:
         """Calculate and format observing hours."""

@@ -100,18 +100,29 @@ class WebExClient:
 
     # === Space Operations ===
 
-    def create_space(self, title: str) -> str:
+    def create_space(self, title: str, team_id: str = None) -> str:
         """
-        Create a new space.
+        Create a new space, optionally within a team.
 
         Args:
             title: The space title
+            team_id: Optional team ID to create the space within
 
         Returns:
             The Space ID
         """
-        room = self.api.rooms.create(title=title)
+        kwargs = {"title": title}
+        if team_id:
+            kwargs["teamId"] = team_id
+        room = self.api.rooms.create(**kwargs)
         return room.id
+
+    def get_team_id_by_name(self, name: str) -> str:
+        """Look up a team ID by its name."""
+        for team in self.api.teams.list():
+            if team.name == name:
+                return team.id
+        return None
 
     def get_space(self, room_id: str):
         """Get a space by ID."""

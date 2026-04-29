@@ -26,125 +26,80 @@ class SessionManager:
         self.client = client
         self.space_id = space_id
 
-    def create_session_thread(self, date: datetime.date, operator_message: str) -> str:
+    def create_session_space(
+        self,
+        date: datetime.date,
+        operator_message: str,
+        operator_emails: List[str],
+        team_id: str = None
+    ) -> str:
         """
-        Create a new parent message for an observing session.
+        Create a new private space for an observing session.
 
         Args:
             date: The date of the observing session
             operator_message: Initial message with operator assignments
+            operator_emails: List of operator emails to add to the space
+            team_id: Optional team ID to create the space within
 
         Returns:
-            The message ID of the parent message (used for threading)
+            The space ID of the new session space
         """
-        # Create the parent message
         date_str = date.strftime(self.DATE_FORMAT)
-        parent_text = f"Observing Session {date_str}"
-        parent_markdown = f"**{parent_text}**"
+        title = f"Observing Session {date_str}"
 
-        parent_id = self.client.send_message(
-            room_id=self.space_id,
-            text=parent_text,
-            markdown=parent_markdown
-        )
-        print(f"Created session thread: {parent_text} (ID: {parent_id})")
+        space_id = self.client.create_space(title, team_id=team_id)
+        print(f"Created session space: {title} (ID: {space_id})")
 
-        # Post operator assignments as first reply
-        self.client.send_message(
-            room_id=self.space_id,
-            text=operator_message,
-            markdown=operator_message,
-            parent_id=parent_id
-        )
+        # Add operators as members
+        for email in operator_emails:
+            self.client.add_person_to_space(space_id, email)
+
+        # Post operator assignments
+        self.client.send_message(space_id, operator_message, markdown=operator_message)
 
         # Ask about openscope
         self.client.send_message(
-            room_id=self.space_id,
-            text="Are the ES operators good with this being an openscope session where the community is invited to attend?",
-            parent_id=parent_id
+            space_id,
+            "Are the ES operators good with this being an openscope session where the community is invited to attend?"
         )
 
-        return parent_id
+        return space_id
 
-    def post_to_session(
-        self,
-        parent_id: str,
-        text: str,
-        markdown: str = None
-    ) -> str:
-        """
-        Post an update to an existing session thread.
+    def post_to_session(self, space_id: str, text: str, markdown: str = None) -> str:
+        """Post an update to a session space."""
+        return self.client.send_message(room_id=space_id, text=text, markdown=markdown)
 
-        Args:
-            parent_id: The ID of the parent message (session thread)
-            text: Plain text message
-            markdown: Optional markdown-formatted message
+    def post_weather_update(self, space_id: str, weather_text: str) -> str:
+        """Post a weather update to a session space."""
+        return self.post_to_session(space_id, weather_text, weather_text)
 
-        Returns:
-            The message ID of the reply
-        """
-        return self.client.send_message(
-            room_id=self.space_id,
-            text=text,
-            markdown=markdown,
-            parent_id=parent_id
-        )
+    def post_status_go(self, space_id: str) -> str:
+        """Post a GO status to a session space."""
+        return self.post_to_session(space_id, "Status: GO", "**Status: GO**")
 
-    def post_weather_update(self, parent_id: str, weather_text: str) -> str:
-        """Post a weather update to a session thread."""
-        return self.post_to_session(
-            parent_id,
-            weather_text,
-            f"```\n{weather_text}\n```"
-        )
-
-    def post_status_go(self, parent_id: str) -> str:
-        """Post a GO status to a session thread."""
-        return self.post_to_session(
-            parent_id,
-            "Status: GO",
-            "**Status: GO**"
-        )
-
-    def post_status_cancelled(self, parent_id: str, reason: str = None) -> str:
-        """Post a CANCELLED status to a session thread."""
+    def post_status_cancelled(self, space_id: str, reason: str = None) -> str:
+        """Post a CANCELLED status to a session space."""
         text = "Status: CANCELLED"
         if reason:
             text += f" - {reason}"
-        return self.post_to_session(
-            parent_id,
-            text,
-            f"**{text}**"
-        )
+        return self.post_to_session(space_id, text, f"**{text}**")
 
-    def post_status_looks_bad(self, parent_id: str) -> str:
-        """Post a 'looks bad' warning to a session thread."""
+    def post_status_looks_bad(self, space_id: str) -> str:
+        """Post a 'looks bad' warning to a session space."""
         return self.post_to_session(
-            parent_id,
+            space_id,
             "Looks bad for observing session",
             "**Looks bad for observing session**"
         )
 
-    def post_observing_hours(self, parent_id: str, hours_text: str) -> str:
-        """Post observing hours to a session thread."""
-        return self.post_to_session(
-            parent_id,
-            hours_text,
-            f"**{hours_text}**"
-        )
+    def post_observing_hours(self, space_id: str, hours_text: str) -> str:
+        """Post observing hours to a session space."""
+        return self.post_to_session(space_id, hours_text, f"**{hours_text}**")
 
-    def post_uncancelled(self, parent_id: str, coordinator_email: str) -> str:
-        """Post an uncancellation notice to a session thread."""
-        mention = self.client.mention_person(coordinator_email)
-        text = f"Observing session has been uncancelled. {mention} please recreate the calendar shifts for this session."
-        return self.post_to_session(parent_id, text, text)
-
-    def get_thread_replies(self, parent_id: str) -> List:
-        """Get all replies to a parent message."""
-        return self.client.list_messages(
-            room_id=self.space_id,
-            parent_id=parent_id
-        )
+    def post_uncancelled(self, space_id: str) -> str:
+        """Post an uncancellation notice to a session space."""
+        return self.post_to_session(space_id, "Observing session has been uncancelled.", "**Observing session has been uncancelled.**")
 
 
 class SessionStateManager:

@@ -1,5 +1,5 @@
 """
-Utility script to list all spaces the bot is a member of.
+Utility script to list all spaces and teams the bot is a member of.
 Run this after creating a space and adding the bot to it.
 """
 
@@ -21,6 +21,19 @@ me = api.people.me()
 print(f"Bot: {me.displayName}")
 print(f"Bot ID: {me.id}")
 print(f"Bot Email: {me.emails[0] if me.emails else 'N/A'}")
+print()
+
+# List teams
+print("Teams the bot is in:")
+print("-" * 60)
+teams = list(api.teams.list())
+if not teams:
+    print("No teams found. Add the bot to a team first.")
+else:
+    for team in teams:
+        print(f"Title: {team.name}")
+        print(f"ID:    {team.id}")
+        print("-" * 60)
 print()
 
 # List spaces

@@ -1,0 +1,74 @@
+SkyBot WebEx - TODO
+===================
+
+MUST HAVE (Core Functionality)
+-------------------------------
+
+Configuration:
+  [x] Add UMBC emails to AUTHORIZED_SHIFTERS in .env
+  [x] Set SCHEDULE_COORDINATOR_EMAIL in .env
+  [x] Migrate operators.csv/schedule.csv to UMBC emails (WebEx-specific copies in data/)
+  [ ] Invite actual operators to WebEx, then populate data/operators.csv and data/schedule.csv
+      with their real UMBC emails (currently only bfradki1 and proutyr1 for testing)
+  [ ] Update AUTHORIZED_SHIFTERS in .env to include all shift leads/coordinators
+      (currently only bfradki1@umbc.edu)
+
+Not Ported:
+  [ ] Weekend/Friday auto-cancellation in daily_check
+      (pending answer to open question about weekend sessions)
+
+Untested Flows:
+  [x] Daily check end-to-end: session space creation, operator @mentions, weather post
+  [x] Session spaces created within UMBC Observatory team - CONFIRMED WORKING
+  [x] cancel command - CONFIRMED WORKING
+  [ ] Observing hours calculation - verify output is correct
+  [ ] 15:05 re-check: posting weather update inside an existing session space
+  [ ] uncancel command - pending Friday meeting to clarify desired behavior
+  [ ] schedule command - read/change schedule via WebEx
+
+Cleanup:
+  [ ] Remove temporary "testcheck" command from webex_main.py before production
+
+
+SHOULD HAVE (Important but not blocking)
+-----------------------------------------
+  [ ] Popscope scheduled check - pending answer to open question
+  [x] Verify @mention format works in WebEx - CONFIRMED WORKING
+  [x] Fix double backtick wrapping in session_manager.py and webex_main.py
+
+
+PRODUCTION / DEPLOYMENT
+------------------------
+  [ ] Replace ngrok with a permanent hosting solution
+      (current setup requires laptop to be on and ngrok running)
+  [ ] Decide on a server to run the bot permanently
+
+
+OPEN QUESTIONS (bring to Friday meeting)
+-----------------------------------------
+  [ ] Should skyBot auto-archive a session space on cancel, or leave it to moderators?
+      (Pro auto-archive: cleaner active space list. Con: harder to uncancel if archived)
+  [ ] Are there typically sessions on Friday, Saturday, and Sunday?
+      Currently the bot auto-cancels weekend sessions (Sat/Sun) when the daily check runs
+      on Friday. If weekend sessions do happen, should this auto-cancel be removed and
+      instead notify moderators to manually decide whether to create the session space?
+  [ ] Popscope automated check - was commented out on Discord, never ran automatically.
+      Popscope = public sidewalk astronomy/outreach events, checks cloud cover sunset to ~9 PM
+      on weekdays only (shorter window than full obs sessions).
+      Should this be automated? If so, where should it post in WebEx?
+  [ ] Uncancel functionality - what should happen when a session is uncancelled?
+      - Should the session space be unarchived if it was archived?
+      - Should skyBot re-post the operator assignments and weather update?
+      - Should moderators be notified/pinged to confirm the session is back on?
+
+
+FUTURE IMPROVEMENTS (post full deployment)
+-------------------------------------------
+  [ ] Discord/WebEx: Add late-evening re-check (~8-9 PM) that can still CREATE a session
+      if the noon check missed a late-night clear window
+      (15:05 check can only cancel, not create)
+      QUESTION: If a new clear window is found at the re-check, should skyBot automatically
+      create the session space and ping operators, or just notify moderators and let them
+      decide whether to create the session? (schedules may be too tight at that point)
+      QUESTION: If skyBot discovers a new session opportunity, should it @mention the
+      moderator/coordinator directly so they get a ping and don't miss it?
