@@ -62,6 +62,8 @@ class SkyBotWebEx:
         self.include_midnight_shifts = False
         self.authorized_shifters = self._load_authorized_shifters()
         self.observing_space_id = os.getenv("WEBEX_OBSERVING_SPACE_ID")
+        self.observing_sessions_space_id = os.getenv("WEBEX_OBSERVING_SESSIONS_SPACE_ID")
+        self.shift_trading_space_id = os.getenv("WEBEX_SHIFT_TRADING_SPACE_ID")
         self.team_id = self.client.get_team_id_by_name("UMBC Observatory")
         if self.team_id:
             print(f"Found team: UMBC Observatory (ID: {self.team_id})")
@@ -148,6 +150,9 @@ class SkyBotWebEx:
             if self._check_shifter(person_email, room_id, parent_id):
                 self.daily_check()
 
+        elif cmd.startswith('trade'):
+            self._cmd_trade_shift(room_id, cmd, person_email, parent_id)
+
         # Shifter-only commands
         elif cmd.startswith('create session'):
             if self._check_shifter(person_email, room_id, parent_id):
@@ -205,7 +210,8 @@ class SkyBotWebEx:
             "- **popscope** - Cloud cover sunset to 21:00, next 3 days\n"
             "- **ping** - Show host running skyBot\n"
             "- **help** - This message\n"
-            "- **sessions** - Show recent session status\n\n"
+            "- **sessions** - Show recent session status\n"
+            "- **trade YYYY-MM-DD SHIFT new_email** - Trade a shift to another person\n\n"
             "---\n"
             "**Shifter Commands** (authorized only)\n\n"
             "- **create session YYYY-MM-DD** - Manually create a session space for a given date (today to day+2)\n"
@@ -403,10 +409,21 @@ class SkyBotWebEx:
             self._check_session(day, wc)
 
         self.state.write_sessions()
-        self.client.send_message(
-            self.observing_space_id,
-            "Daily checks have been completed"
-        )
+
+        # Post per-day status to Observing Sessions space
+        if self.observing_sessions_space_id:
+            for day in [1, 2, 3]:
+                session = self.state.get_session_for_day(day)
+                date_str = session['date'].strftime('%Y-%m-%d')
+                if session['is_cancelled']:
+                    status = "Cancelled"
+                elif session['is_clear']:
+                    status = "Go!"
+                else:
+                    status = "Looks bad"
+                self.client.send_message(self.observing_sessions_space_id, f"{date_str}: {status}")
+            self.client.send_message(self.observing_sessions_space_id, "Daily checks complete")
+
         print("Daily check complete")
 
     def obs_sess_check(self):
@@ -486,6 +503,11 @@ class SkyBotWebEx:
         details = wc.ccForecast(day, False)
         self.session_manager.post_weather_update(space_id, details)
 
+        # Post shift roster to Shift Trading space
+        if self.shift_trading_space_id:
+            roster = f"**Observing Session {obs_date}**\n{operator_message}"
+            self.client.send_message(self.shift_trading_space_id, roster, markdown=roster)
+
         return space_id
 
     def _build_operator_message(self, schedule) -> tuple:
@@ -509,6 +531,88 @@ class SkyBotWebEx:
                     emails.append(email)
 
         return "\n".join(lines), emails
+
+    def _cmd_trade_shift(self, room_id: str, cmd: str, person_email: str, parent_id: str = None):
+        """Handle trade YYYY-MM-DD SHIFT new_email command."""
+        valid_shifts = ['ES1', 'ES2', 'MS1', 'MS2', 'GS1', 'GS2']
+        parts = cmd.split()
+        if len(parts) != 4:
+            self.client.send_message(
+                room_id,
+                "Usage: trade YYYY-MM-DD SHIFT new_email (e.g. trade 2026-05-03 GS1 person@umbc.edu)",
+                parent_id=parent_id
+            )
+            return
+
+        try:
+            target_date = datetime.date.fromisoformat(parts[1])
+        except ValueError:
+            self.client.send_message(room_id, "Invalid date format. Use YYYY-MM-DD.", parent_id=parent_id)
+            return
+
+        shift_name = parts[2].upper()
+        new_email = parts[3].lower()
+
+        if shift_name not in valid_shifts:
+            self.client.send_message(
+                room_id,
+                f"Invalid shift. Must be one of: {', '.join(valid_shifts)}",
+                parent_id=parent_id
+            )
+            return
+
+        today = datetime.date.today()
+        day = (target_date - today).days + 1
+        if day < 1 or day > 3:
+            self.client.send_message(
+                room_id,
+                f"Date must be within the next 3 days ({today} to {today + datetime.timedelta(days=2)}).",
+                parent_id=parent_id
+            )
+            return
+
+        session = self.state.get_session_for_day(day)
+        if not session['parent_id']:
+            self.client.send_message(room_id, f"No session space exists for {target_date}.", parent_id=parent_id)
+            return
+
+        space_id = session['parent_id']
+        shift_index = valid_shifts.index(shift_name)
+        schedule = self.sr.getSchedule(target_date.weekday())
+        current_email = schedule[shift_index][1].lower()
+
+        # Allow if sender owns the shift or is an authorized shifter
+        is_moderator = self.client.is_authorized(person_email, self.authorized_shifters)
+        if current_email != person_email.lower() and not is_moderator:
+            self.client.send_message(
+                room_id,
+                f"You are not scheduled for {shift_name} on {target_date}.",
+                parent_id=parent_id
+            )
+            return
+
+        old_email = current_email
+
+        # Check if old person has other shifts that day — only remove if this is their only one
+        other_shifts = sum(1 for i in range(len(valid_shifts)) if schedule[i][1].lower() == old_email)
+        if other_shifts <= 1:
+            self.client.remove_person_from_space(space_id, old_email)
+
+        # Add new person to session space
+        self.client.add_person_to_space(space_id, new_email)
+
+        # Post announcement in session space
+        new_mention = self.client.mention_person(new_email)
+        old_mention = self.client.mention_person(old_email)
+        announcement = f"{shift_name}: {new_mention} (traded from {old_mention})"
+        self.client.send_message(space_id, announcement, markdown=announcement)
+
+        # Confirm in the channel where command was sent
+        self.client.send_message(
+            room_id,
+            f"Trade confirmed: {shift_name} on {target_date} transferred to {new_email}.",
+            parent_id=parent_id
+        )
 
     def _calculate_observing_hours(self, clear_hours, wc, day: int) -> str:
         """Calculate and format observing hours."""

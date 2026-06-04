@@ -1,6 +1,14 @@
 SkyBot WebEx - TODO
 ===================
 
+NOTE FROM COORDINATOR:
+  - "Observing Sessions" space mirrors Discord's shift-calling channel
+    (daily check results posted here, shift changes discussed here)
+  - Individual "OS YYYY-MM-DD" spaces restricted to scheduled operators + key staff
+    (coordinator, Vincent, Eileen, Ian, etc.)
+  - Shift trading handled in "Shift Trading" space
+
+
 MUST HAVE (Core Functionality)
 -------------------------------
 
@@ -8,10 +16,14 @@ Configuration:
   [x] Add UMBC emails to AUTHORIZED_SHIFTERS in .env
   [x] Set SCHEDULE_COORDINATOR_EMAIL in .env
   [x] Migrate operators.csv/schedule.csv to UMBC emails (WebEx-specific copies in data/)
+  [x] Set up "Observing Sessions" space - daily check announcements post here
+  [x] Set up "Shift Trading" space - shift roster posted here on session creation
   [ ] Invite actual operators to WebEx, then populate data/operators.csv and data/schedule.csv
       with their real UMBC emails (currently only bfradki1 and proutyr1 for testing)
   [ ] Update AUTHORIZED_SHIFTERS in .env to include all shift leads/coordinators
       (currently only bfradki1@umbc.edu)
+  [ ] Add permanent key members always added to every OS space
+      (coordinator, Vincent, Eileen, Ian - store as PERMANENT_SPACE_MEMBERS in .env)
 
 Not Ported:
   [ ] Weekend/Friday auto-cancellation in daily_check
@@ -21,6 +33,9 @@ Untested Flows:
   [x] Daily check end-to-end: session space creation, operator @mentions, weather post
   [x] Session spaces created within UMBC Observatory team - CONFIRMED WORKING
   [x] cancel command - CONFIRMED WORKING
+  [x] Daily check results posted to "Observing Sessions" space
+  [x] Shift roster posted to "Shift Trading" space on session creation
+  [ ] trade command - shift trading with space membership changes
   [ ] Observing hours calculation - verify output is correct
   [ ] 15:05 re-check: posting weather update inside an existing session space
   [ ] uncancel command - pending Friday meeting to clarify desired behavior
@@ -32,6 +47,8 @@ Cleanup:
 
 SHOULD HAVE (Important but not blocking)
 -----------------------------------------
+  [ ] Email notifications to observatory@umbc.edu
+      (clarify at Friday meeting which events trigger: session created? cancelled? both?)
   [ ] Popscope scheduled check - pending answer to open question
   [x] Verify @mention format works in WebEx - CONFIRMED WORKING
   [x] Fix double backtick wrapping in session_manager.py and webex_main.py
@@ -60,6 +77,7 @@ OPEN QUESTIONS (bring to Friday meeting)
       - Should the session space be unarchived if it was archived?
       - Should skyBot re-post the operator assignments and weather update?
       - Should moderators be notified/pinged to confirm the session is back on?
+  [ ] Email notifications - which events should trigger an email to observatory@umbc.edu?
 
 
 FUTURE IMPROVEMENTS (post full deployment)

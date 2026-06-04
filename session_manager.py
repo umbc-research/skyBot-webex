@@ -46,7 +46,7 @@ class SessionManager:
             The space ID of the new session space
         """
         date_str = date.strftime(self.DATE_FORMAT)
-        title = f"Observing Session {date_str}"
+        title = f"Obs Ses {date_str}"
 
         space_id = self.client.create_space(title, team_id=team_id)
         print(f"Created session space: {title} (ID: {space_id})")
