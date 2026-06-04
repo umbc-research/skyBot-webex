@@ -59,6 +59,11 @@ PRODUCTION / DEPLOYMENT
   [ ] Replace ngrok with a permanent hosting solution
       (current setup requires laptop to be on and ngrok running)
   [ ] Decide on a server to run the bot permanently
+  [ ] Consider switching from webhooks to WebSockets (webex_bot package)
+      - No public URL required, bot opens persistent connection to WebEx cloud
+      - Removes need for ngrok, Flask, gunicorn entirely
+      - Would require: replace flask/gunicorn in requirements.txt, delete webhook_server.py,
+        rewrite main loop in webex_main.py (core command logic stays the same)
 
 
 OPEN QUESTIONS (bring to Friday meeting)
@@ -90,3 +95,10 @@ FUTURE IMPROVEMENTS (post full deployment)
       decide whether to create the session? (schedules may be too tight at that point)
       QUESTION: If skyBot discovers a new session opportunity, should it @mention the
       moderator/coordinator directly so they get a ping and don't miss it?
+
+
+
+
+-toggle option for auto archive command
+-uncancel functionality
+-reprint the new schedule for each session after a shift trade occurs

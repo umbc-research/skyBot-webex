@@ -10,7 +10,6 @@ __pycache__/
 
 # Data (keep structure but not contents)
 data/sessions.csv
-data/operators.csv
 
 # Logs
 *.log
