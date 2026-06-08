@@ -210,11 +210,11 @@ class SkyBotWebEx:
             "- **popscope** - Cloud cover sunset to 21:00, next 3 days\n"
             "- **ping** - Show host running skyBot\n"
             "- **help** - This message\n"
-            "- **sessions** - Show recent session status\n"
-            "- **trade YYYY-MM-DD SHIFT new_email** - Trade a shift to another person\n\n"
+            "- **sessions** - Show recent session status\n\n"
             "---\n"
             "**Shifter Commands** (authorized only)\n\n"
             "- **create session YYYY-MM-DD** - Manually create a session space for a given date (today to day+2)\n"
+            "- **trade YYYY-MM-DD SHIFT new_email** - Trade a shift to another person\n"
             "- **cancel** - Cancel an observing session (use inside session space)\n"
             "- **uncancel** - Uncancel a previously cancelled session (use inside session space)\n"
             "- **enable ms** - Enable midnight shift pinging (winter months)\n"
@@ -534,6 +534,8 @@ class SkyBotWebEx:
 
     def _cmd_trade_shift(self, room_id: str, cmd: str, person_email: str, parent_id: str = None):
         """Handle trade YYYY-MM-DD SHIFT new_email command."""
+        if not self._check_shifter(person_email, room_id, parent_id):
+            return
         valid_shifts = ['ES1', 'ES2', 'MS1', 'MS2', 'GS1', 'GS2']
         parts = cmd.split()
         if len(parts) != 4:
