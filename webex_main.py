@@ -359,8 +359,9 @@ class SkyBotWebEx:
         self.state.set_session_for_day(day, is_cancelled=False, is_clear=True)
         self.state.write_sessions()
 
-        # Post to the session thread
+        # Post to the session space
         self.session_manager.post_uncancelled(session['parent_id'])
+        self._post_schedule(session['parent_id'], session['date'])
         self.client.send_message(room_id, "Session has been uncancelled.")
 
     def _cmd_enable_ms(self, room_id: str, parent_id: str = None):
@@ -510,6 +511,14 @@ class SkyBotWebEx:
 
         return space_id
 
+    def _post_schedule(self, space_id: str, date: datetime.date):
+        """Post the current operator schedule to a session space."""
+        os.chdir(os.path.join(WEBEX_DIR, 'data'))
+        schedule = self.sr.getSchedule(date.weekday())
+        message, _ = self._build_operator_message(schedule)
+        header = f"**Updated schedule for {date}:**\n{message}"
+        self.client.send_message(space_id, header, markdown=header)
+
     def _build_operator_message(self, schedule) -> tuple:
         """Build operator assignment message with mentions. Returns (message, emails)."""
         lines = []
@@ -595,19 +604,20 @@ class SkyBotWebEx:
 
         old_email = current_email
 
-        # Check if old person has other shifts that day — only remove if this is their only one
-        other_shifts = sum(1 for i in range(len(valid_shifts)) if schedule[i][1].lower() == old_email)
-        if other_shifts <= 1:
+        # Remove old person if they have no other shifts that day
+        remaining_shifts = sum(1 for i in range(len(valid_shifts)) if i != shift_index and schedule[i][1].lower() == old_email)
+        if remaining_shifts == 0:
             self.client.remove_person_from_space(space_id, old_email)
 
         # Add new person to session space
         self.client.add_person_to_space(space_id, new_email)
 
-        # Post announcement in session space
+        # Post announcement then updated schedule in session space
         new_mention = self.client.mention_person(new_email)
         old_mention = self.client.mention_person(old_email)
         announcement = f"{shift_name}: {new_mention} (traded from {old_mention})"
         self.client.send_message(space_id, announcement, markdown=announcement)
+        self._post_schedule(space_id, target_date)
 
         # Confirm in the channel where command was sent
         self.client.send_message(
@@ -668,8 +678,22 @@ def setup_scheduler(bot: SkyBotWebEx) -> BackgroundScheduler:
     return scheduler
 
 
+def _acquire_instance_lock() -> socket.socket:
+    """Bind a loopback socket as a mutex. Exits if another instance is already running."""
+    lock_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    if hasattr(socket, 'SO_EXCLUSIVEADDRUSE'):  # Windows-only, prevents rebind
+        lock_sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+    try:
+        lock_sock.bind(('127.0.0.1', 47382))
+        return lock_sock
+    except OSError:
+        print("ERROR: Another SkyBot instance is already running. Exiting.")
+        sys.exit(1)
+
+
 def main():
     """Main entry point."""
+    _lock = _acquire_instance_lock()  # ponytail: must stay assigned — GC would release the port
     print("Starting SkyBot WebEx...")
 
     # Initialize bot

@@ -1,14 +1,6 @@
 SkyBot WebEx - TODO
 ===================
 
-NOTE FROM COORDINATOR:
-  - "Observing Sessions" space mirrors Discord's shift-calling channel
-    (daily check results posted here, shift changes discussed here)
-  - Individual "OS YYYY-MM-DD" spaces restricted to scheduled operators + key staff
-    (coordinator, Vincent, Eileen, Ian, etc.)
-  - Shift trading handled in "Shift Trading" space
-
-
 MUST HAVE (Core Functionality)
 -------------------------------
 
@@ -28,6 +20,13 @@ Configuration:
 Not Ported:
   [ ] Weekend/Friday auto-cancellation in daily_check
       (pending answer to open question about weekend sessions)
+  [ ] Google Calendar integration - cancel/uncancel shifts on calendar when session is cancelled
+      Original Discord bot deleted scheduled events from a connected Discord server (which synced
+      to a Google Calendar via a third-party integration). WebEx has no equivalent hook.
+      Options to investigate:
+        - Google Calendar API directly (create/delete events via service account)
+        - Webhook from WebEx → Google Apps Script → Calendar
+        - Manual process: bot notifies coordinator to update calendar (simplest fallback)
 
 Untested Flows:
   [x] Daily check end-to-end: session space creation, operator @mentions, weather post
@@ -35,7 +34,7 @@ Untested Flows:
   [x] cancel command - CONFIRMED WORKING
   [x] Daily check results posted to "Observing Sessions" space
   [x] Shift roster posted to "Shift Trading" space on session creation
-  [ ] trade command - shift trading with space membership changes
+  [x] trade command - implemented (shifter-only, space membership changes, schedule reprint)
   [ ] Observing hours calculation - verify output is correct
   [ ] 15:05 re-check: posting weather update inside an existing session space
   [ ] uncancel command - pending Friday meeting to clarify desired behavior
@@ -99,6 +98,111 @@ FUTURE IMPROVEMENTS (post full deployment)
 
 
 
--toggle option for auto archive command
--uncancel functionality
--reprint the new schedule for each session after a shift trade occurs
+  [ ] Toggle option for auto-archive on cancel
+  [ ] Uncancel full functionality (pending Friday meeting answers)
+  [x] Reprint schedule in session space after shift trade
+  [x] Reprint schedule in session space after uncancel
+  [x] Fix operators not being removed after shift trade when no other shifts that night
+  [x] Fix cancel command not recognizing it's inside a session space
+  [x] Restrict trade command to authorized shifters only
+  [x] Move trade command to Shifter Commands section in help text
+  [x] Add OVERVIEW.txt explaining all files and their interactions
+  [x] Add .env.example template for fresh deployments
+  [x] Add operators.csv template for fresh deployments
+
+
+===========================================================================
+DISCORD → WEBEX FEATURE GAP AUDIT
+(comprehensive list of what still needs to be ported or decided on)
+===========================================================================
+
+--- SCHEDULED JOBS (automation) ---
+
+  [ ] Popscope automated daily check (12:04)
+      Discord ran dailyPopScope at 12:04 every day posting to a dedicated popscope channel.
+      WebEx has the `popscope` command but NO scheduled job.
+      Discord logic to replicate:
+        - Mon-Fri: post today's go/no-go
+        - Mon-Thu + Sun: post tomorrow's go/no-go
+        - Mon-Wed + Sat-Sun: post day-after's go/no-go
+        - If today is clear AND it's a weekday: also post full hourly popscope forecast for today
+      Needs WEBEX_POPSCOPE_SPACE_ID env var + new scheduled job at 12:04.
+
+  [ ] Day-of auto-cancellation in daily_check
+      Discord: if day == 1 and weather is bad, session is auto-CANCELLED (not just "Looks bad").
+      WebEx: _check_session() only marks is_clear=False and posts "Looks bad" for all days equally.
+      Should auto-cancel day 1 when weather is bad, same as days 2-3 only get "Looks bad".
+
+  [ ] Weekend/Friday auto-cancellation in daily_check
+      Discord: if the session date falls on Sat/Sun AND today is Fri or later, auto-cancel it.
+      WebEx: not implemented. (See also open question about whether weekend sessions happen.)
+
+  [ ] obs_sess_check status update back to Observing Sessions space
+      Discord: when the 15:05 check ran, it updated shift-calling with GO or CANCELLED.
+      WebEx: obs_sess_check only posts inside the session space; Observing Sessions space
+      gets no update from the evening check.
+
+--- SPACES / CHANNELS ---
+
+  [ ] Popscope WebEx space
+      No equivalent space exists yet. Create it and add WEBEX_POPSCOPE_SPACE_ID to .env.
+      Discord had a dedicated #popscope channel for automated check results.
+
+  [ ] Engineering/ops notification space
+      Discord's cancelSess() posted to #engineering-chat (in Roy's separate server) with a
+      role mention any time a session was auto-cancelled by weather.
+      WebEx needs an equivalent: either a dedicated engineering space or reuse Observing Sessions.
+      Add WEBEX_ENGINEERING_SPACE_ID (or decide to reuse an existing space).
+
+  [ ] Clarify what other Discord channels existed beyond what's in the code
+      The code references: shift-calling, observing-sessions (forum), popscope, engineering-chat.
+      If there were additional channels (general, announcements, public-facing, etc.) that
+      should have WebEx equivalents, they need to be listed and created.
+
+--- NOTIFICATIONS & PINGS ---
+
+  [ ] "Operator needed" group notification
+      Discord: unassigned shifts used a role mention <@&roleID> so ALL operators got pinged.
+      WebEx: no role system — currently just prints "Operator needed" text with no ping.
+      Options: ping all AUTHORIZED_SHIFTERS individually, post to a general ops space,
+      or add a dedicated WEBEX_OPS_ROLE_SPACE_ID where all operators are members.
+
+  [ ] Weather cancellation alert to ops/engineering space
+      Discord: auto-cancels triggered a message to #engineering-chat with a role ping.
+      WebEx: auto-cancels only post inside the session space. Nothing goes to a general
+      ops space. Should add a notification to WEBEX_ENGINEERING_SPACE_ID on auto-cancel.
+
+  [ ] Coordinator ping on uncancel to recreate calendar shifts
+      Discord: manualUncancel() sent a specific message pinging the schedule coordinator
+      to recreate calendar events ("please recreate the calendar shifts for this session").
+      WebEx: posts to session space but doesn't call out the coordinator specifically
+      or mention the calendar. When calendar integration exists, this should trigger it.
+      For now, should at least DM or @ the coordinator with an explicit reminder.
+
+  [ ] Email notifications to observatory@umbc.edu
+      (Already tracked above under SHOULD HAVE — repeated here for completeness)
+
+--- CALENDAR INTEGRATION ---
+
+  [ ] Google Calendar: auto-cancel all shifts when full session is cancelled
+      Discord: deleted Discord scheduled events (synced to Google Calendar via Roy's server).
+      WebEx: no equivalent. See "Not Ported" section above for implementation options.
+
+  [ ] Google Calendar: per-shift partial cancellation
+      Discord: cancelSess() had logic to only cancel shifts whose time window had bad weather
+      (ES if early hours bad, MS if mid-night bad, GS if late hours bad).
+      Shift windows vary by time of year (dark hours range changes). Full logic is in main.py:326-403.
+      WebEx: not implemented — depends on calendar integration existing first.
+
+--- COMMANDS / BEHAVIOR ---
+
+  [ ] Session re-linking command (equivalent to Discord's `set thread`)
+      Discord: `skybot set thread0/1/2/3` let mods manually link the bot to an existing
+      thread after a bot restart or manually-created thread.
+      WebEx: `create session YYYY-MM-DD` only CREATES new spaces; there is no way to link
+      the bot to an existing session space if sessions.csv gets out of sync after a restart.
+      Add: `link session YYYY-MM-DD SPACE_ID` or similar recovery command.
+
+  [ ] GO/NO-GO log file
+      Discord: obsSessCheck() appended GO or NO-GO with date to report.txt for record keeping.
+      WebEx: no equivalent logging. Decide if this is still wanted, and if so where to write it.
