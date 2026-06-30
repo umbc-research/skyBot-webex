@@ -149,15 +149,10 @@ DISCORD → WEBEX FEATURE GAP AUDIT
       Discord had a dedicated #popscope channel for automated check results.
 
   [ ] Engineering/ops notification space
-      Discord's cancelSess() posted to #engineering-chat (in Roy's separate server) with a
+      Discord's cancelSess() posted to #engineering-chat with a
       role mention any time a session was auto-cancelled by weather.
       WebEx needs an equivalent: either a dedicated engineering space or reuse Observing Sessions.
       Add WEBEX_ENGINEERING_SPACE_ID (or decide to reuse an existing space).
-
-  [ ] Clarify what other Discord channels existed beyond what's in the code
-      The code references: shift-calling, observing-sessions (forum), popscope, engineering-chat.
-      If there were additional channels (general, announcements, public-facing, etc.) that
-      should have WebEx equivalents, they need to be listed and created.
 
 --- NOTIFICATIONS & PINGS ---
 
